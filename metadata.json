@@ -1,0 +1,8 @@
+{
+  "name": "AttendFlow - Employee Attendance System",
+  "description": "A lightweight, real-time employee attendance tracking system featuring QR code scanning, geolocation verification, and automated payroll calculation.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
