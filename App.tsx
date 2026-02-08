@@ -108,6 +108,10 @@ const App: React.FC = () => {
     setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
   };
 
+  const handleAddEmployee = (newEmp: Employee) => {
+    setEmployees(prev => [newEmp, ...prev]);
+  };
+
   if (!currentRole && !showAdminLogin) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-6 relative overflow-hidden">
@@ -261,6 +265,7 @@ const App: React.FC = () => {
           onDeleteLocation={(id) => setLocations(locations.filter(l => l.id !== id))}
           onImportEmployees={handleImportEmployees}
           onUpdateEmployee={handleUpdateEmployee}
+          onAddEmployee={handleAddEmployee}
           onLogout={handleLogout}
         />
       )}

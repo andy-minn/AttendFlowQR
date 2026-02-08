@@ -8,7 +8,8 @@ import {
   Wallet, Receipt, CreditCard, ShieldCheck, PieChart as PieChartIcon,
   Pencil, Trash2, Globe, Building2, Factory, Warehouse, ShoppingBag,
   QrCode, RefreshCw, FileUp, Download, UserMinus, UserCheck, 
-  Banknote, Scale, Percent, ArrowDownRight, Calculator, Calendar
+  Banknote, Scale, Percent, ArrowDownRight, Calculator, Calendar,
+  IdCard, Briefcase
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
@@ -26,6 +27,7 @@ interface AdminDashboardProps {
   onDeleteLocation?: (id: string) => void;
   onImportEmployees?: (employees: Employee[]) => void;
   onUpdateEmployee?: (employee: Employee) => void;
+  onAddEmployee?: (employee: Employee) => void;
   onLogout: () => void;
 }
 
@@ -38,6 +40,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteLocation,
   onImportEmployees,
   onUpdateEmployee,
+  onAddEmployee,
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState('Overview');
@@ -45,6 +48,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [aiInsights, setAiInsights] = useState<{ summary: string, trends: string[], recommendations: string[] } | null>(null);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [selectedPayrollEmpId, setSelectedPayrollEmpId] = useState<string | null>(null);
   const [selectedStatsEmpId, setSelectedStatsEmpId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +58,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Payroll Management State
   const [isPayrollAdjustmentModalOpen, setIsPayrollAdjustmentModalOpen] = useState(false);
   const [targetEmployee, setTargetEmployee] = useState<Employee | null>(null);
+
+  // Employee Registration Form State
+  const [employeeForm, setEmployeeForm] = useState<Partial<Employee>>({
+    name: '',
+    employeeId: '',
+    department: '',
+    role: 'EMPLOYEE',
+    locationId: locations[0]?.id || '',
+    baseSalary: 0,
+    hourlyRate: 0,
+  });
 
   // Location Form State
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -138,7 +153,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const calculateFullPayroll = (empId: string): (PayrollReport & { totalAdjustments: number, penalty: number, loanRepayment: number, bonus: number }) | null => {
     const emp = employees.find(e => e.id === empId);
-    // CRITICAL: Filter for ACTIVE status as per requirements
     if (!emp || emp.status !== 'ACTIVE') return null;
 
     const empRecords = attendance.filter(a => a.employeeId === empId && a.checkIn && a.checkOut);
@@ -188,9 +202,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onUpdateEmployee?.({ ...emp, status: newStatus });
   };
 
+  const handleRegenerateQR = (loc: Location) => {
+    const newQr = `QR-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    onUpdateLocation?.({ ...loc, qrCode: newQr });
+  };
+
+  const handleDownloadQR = (loc: Location) => {
+    // Using a public QR code generation API to fetch an image
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(loc.qrCode)}`;
+    
+    // We fetch the blob to trigger a proper download with a filename
+    fetch(qrUrl)
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${loc.name.replace(/\s+/g, '_')}_QR.png`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      })
+      .catch(err => {
+        console.error("QR Download Error:", err);
+        // Fallback: Open in new tab if blob fetch fails
+        window.open(qrUrl, '_blank');
+      });
+  };
+
   const handleExportPayrollCsv = () => {
     const header = "Name,Employee ID,Department,Status,Base Salary,Bonus,Penalty,Loan,Total OT Hrs,Net Pay\n";
-    // CRITICAL: Filter for ACTIVE status as per requirements
     const activeEmployees = employees.filter(e => e.status === 'ACTIVE');
     const csvContent = activeEmployees.map(emp => {
       const p = calculateFullPayroll(emp.id);
@@ -236,6 +278,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       onAddLocation?.({ ...locationForm, id: `loc-${Date.now()}` } as Location);
     }
     setIsLocationModalOpen(false);
+  };
+
+  const handleSaveEmployee = () => {
+    if (!employeeForm.name || !employeeForm.employeeId) return;
+
+    const newEmployee: Employee = {
+      id: `emp-${Date.now()}`,
+      name: employeeForm.name!,
+      employeeId: employeeForm.employeeId!,
+      role: (employeeForm.role as UserRole) || 'EMPLOYEE',
+      locationId: employeeForm.locationId || locations[0]?.id || '',
+      department: employeeForm.department || 'Unassigned',
+      baseSalary: employeeForm.baseSalary || 0,
+      hourlyRate: employeeForm.hourlyRate || 0,
+      otMultiplier: 1.5,
+      penalty: 0,
+      loanRepayment: 0,
+      bonus: 0,
+      avatar: `https://picsum.photos/seed/${employeeForm.employeeId}/200`,
+      status: 'ACTIVE',
+      onboarded: false
+    };
+
+    onAddEmployee?.(newEmployee);
+    setIsEmployeeModalOpen(false);
+    // Reset form
+    setEmployeeForm({
+      name: '',
+      employeeId: '',
+      department: '',
+      role: 'EMPLOYEE',
+      locationId: locations[0]?.id || '',
+      baseSalary: 0,
+      hourlyRate: 0,
+    });
   };
 
   const handleCsvImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -520,7 +597,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             >
               <FileUp size={18} className="text-indigo-600" /> BULK IMPORT CSV
             </button>
-            <button className="h-12 w-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 hover:scale-105 active:scale-95 transition-all">
+            <button 
+              onClick={() => setIsEmployeeModalOpen(true)}
+              className="h-12 w-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 hover:scale-105 active:scale-95 transition-all"
+            >
               <Plus size={24} />
             </button>
           </div>
@@ -604,7 +684,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const renderPayrollManagement = () => {
-    // CRITICAL: Filter for ACTIVE status as per requirements
     const activeEmployees = employees.filter(e => e.status === 'ACTIVE');
 
     return (
@@ -815,6 +894,125 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
   };
 
+  const EmployeeRegistrationModal = () => {
+    if (!isEmployeeModalOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in">
+        <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+          <div className="px-10 py-8 border-b flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">Register Associate</h2>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">HR Workforce Integration</p>
+            </div>
+            <button onClick={() => setIsEmployeeModalOpen(false)} className="p-3 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="p-10 overflow-y-auto space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
+                <div className="relative">
+                  <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input 
+                    type="text" 
+                    value={employeeForm.name}
+                    onChange={e => setEmployeeForm({...employeeForm, name: e.target.value})}
+                    className="w-full pl-12 pr-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                    placeholder="John Carter"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Employee UID</label>
+                <div className="relative">
+                  <IdCard className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input 
+                    type="text" 
+                    value={employeeForm.employeeId}
+                    onChange={e => setEmployeeForm({...employeeForm, employeeId: e.target.value})}
+                    className="w-full pl-12 pr-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                    placeholder="EMP0XX"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Department</label>
+                <div className="relative">
+                  <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input 
+                    type="text" 
+                    value={employeeForm.department}
+                    onChange={e => setEmployeeForm({...employeeForm, department: e.target.value})}
+                    className="w-full pl-12 pr-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                    placeholder="Logistics"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">System Role</label>
+                <select 
+                  value={employeeForm.role}
+                  onChange={e => setEmployeeForm({...employeeForm, role: e.target.value as UserRole})}
+                  className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                >
+                  <option value="EMPLOYEE">STAFF ASSOCIATE</option>
+                  <option value="ADMIN">SYSTEM ADMIN</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Assigned Operational Zone</label>
+              <select 
+                value={employeeForm.locationId}
+                onChange={e => setEmployeeForm({...employeeForm, locationId: e.target.value})}
+                className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+              >
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Base Salary ($)</label>
+                <input 
+                  type="number" 
+                  value={employeeForm.baseSalary}
+                  onChange={e => setEmployeeForm({...employeeForm, baseSalary: parseFloat(e.target.value)})}
+                  className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Hourly Rate ($)</label>
+                <input 
+                  type="number" 
+                  value={employeeForm.hourlyRate}
+                  onChange={e => setEmployeeForm({...employeeForm, hourlyRate: parseFloat(e.target.value)})}
+                  className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 font-bold"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={handleSaveEmployee}
+              className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-xl shadow-indigo-600/20 active:scale-95 transition-all mt-6"
+            >
+              CREATE ASSOCIATE RECORD
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const StatsModal = () => {
     if (!selectedStatsEmpId) return null;
     const emp = employees.find(e => e.id === selectedStatsEmpId);
@@ -959,13 +1157,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {locations.map((loc) => {
             const Icon = premiseIcons[loc.type] || Building2;
+            const assignedActiveEmployees = employees.filter(e => e.locationId === loc.id && e.status === 'ACTIVE');
+            
             return (
-              <div key={loc.id} className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm hover:shadow-xl transition-all group">
+              <div key={loc.id} className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col">
                 <div className="flex justify-between items-start mb-6">
                   <div className="h-14 w-14 bg-slate-50 text-slate-600 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all">
                     <Icon size={28} />
                   </div>
                   <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => handleDownloadQR(loc)}
+                      title="Download Deployment QR Code"
+                      className="p-2.5 bg-slate-50 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                    >
+                      <Download size={18} />
+                    </button>
+                    <button 
+                      onClick={() => handleRegenerateQR(loc)}
+                      title="Regenerate Security QR Code"
+                      className="p-2.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                    >
+                      <RefreshCw size={18} />
+                    </button>
                     <button 
                       onClick={() => handleOpenLocationModal(loc)}
                       className="p-2.5 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
@@ -1003,6 +1217,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                     <span className="text-slate-900 font-mono text-[10px]">{loc.qrCode}</span>
                   </div>
+                </div>
+
+                {/* Assigned Personnel Section */}
+                <div className="mt-6 pt-6 border-t border-slate-50">
+                  <div className="flex items-center justify-between mb-4">
+                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Active Personnel</h5>
+                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                      {assignedActiveEmployees.length}
+                    </span>
+                  </div>
+                  {assignedActiveEmployees.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
+                      {assignedActiveEmployees.map(emp => (
+                        <div 
+                          key={emp.id} 
+                          title={emp.name}
+                          className="group/avatar relative"
+                        >
+                          <img 
+                            src={emp.avatar} 
+                            alt={emp.name} 
+                            className="h-8 w-8 rounded-lg object-cover ring-2 ring-white shadow-sm hover:ring-indigo-200 transition-all cursor-help"
+                          />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-[9px] font-bold rounded opacity-0 group-hover/avatar:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                            {emp.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] italic text-slate-400">No active staff assigned.</p>
+                  )}
                 </div>
               </div>
             );
@@ -1319,6 +1565,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <PayrollModal />
       <LocationModal />
       <AdjustmentModal />
+      <EmployeeRegistrationModal />
       <StatsModal />
     </div>
   );
